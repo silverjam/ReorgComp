@@ -25,6 +25,11 @@ def fixname(s):
         s = s.replace(from_, to_)
     return s
 
+def fixnameable(s):
+    for (target, _) in _fixname_renames:
+        if target in s:
+            return True
+    return False
 
 def longestpath(x, y):
     return -cmp(len(x[0]) + len(x[1]), len(y[0]) + len(y[1]))
@@ -73,20 +78,15 @@ def rename_files():
             newname = fixname(oldname)
 
             if oldname != newname:
-
                 print "Renaming '%s' to '%s'" % (oldname, newname,)
                 os.rename(oldname, newname)
 
             if is_text_mimetype(newname):
-
                 with open(newname) as fp:
                     data = fp.read()
-
-                if ("chord" in data) or ("Chord" in data):
-
+                if fixnameable(data):
                     data = fixname(data)
                     print "Replacing content in '%s'" % (newname,)
-
                     with open(newname, 'w') as fp:
                         fp.write(data)
 
