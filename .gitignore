@@ -3,3 +3,5 @@ virtualenv
 .tags*
 *.sublime-workspace
 *.pyc
+.ropeproject/globalnames
+.ropeproject/objectdb
