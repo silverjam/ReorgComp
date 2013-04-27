@@ -1,0 +1,15 @@
+{
+	"folders":
+	[
+		{
+			"path": "/home/jam/Code/ReorgCompare",
+			"file_exclude_patterns": [".*"]
+			//"folder_exclude_patterns": ["virtualenv"]
+		}
+	],
+
+	"settings" :
+	{
+		"rope_autoimport_modules" : [ "difflib.*", "argparse.*" ]
+	}
+}

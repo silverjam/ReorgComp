@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
-import re
 import os
 import sys
 import hashlib
 
-from pprint import pprint
+import argparse
 
+from pprint import pprint
 from difflib import SequenceMatcher
 
 # https://pypi.python.org/pypi/python-magic/
@@ -75,10 +75,6 @@ def rename_files():
                         fp.write(data)
 
 
-def detect_move():
-    pass
-
-
 def get_uniqueness_of_files():
 
     names = {}
@@ -136,8 +132,8 @@ def are_file_names_unique():
                     else:
                         print "Binary files where different..."
 
-_get_matching_names_cache = {}
 
+_get_matching_names_cache = {}
 
 def get_dirs_with_filename(scandir, target):
 
@@ -181,22 +177,66 @@ def detect_moves(basenew = None, baseold = None):
     return moves
 
 
+COMMAND_RENAME = "rename"
+COMMAND_UNIQUE = "unique"
+COMMAND_FINDMOVE = "findmove"
+COMMAND_FINDMOVES = "findmoves"
+
+COMMANDS = [
+    COMMAND_RENAME,
+    COMMAND_UNIQUE,
+    COMMAND_FINDMOVE,
+    COMMAND_FINDMOVES,
+]
+
+
+def parse_arguments(args=sys.argv[1:]):
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--addrename", nargs=2, action="append")
+
+    parser.add_argument("--basenew")
+    parser.add_argument("--oldfile")
+    parser.add_argument("--baseold")
+
+    parser.add_argument("--cmd", choices=COMMANDS)
+
+    namespace = parser.parse_args(args)
+
+    if namespace.cmd == COMMAND_FINDMOVE:
+        if not namespace.basenew:
+            parser.error("Command requires --basenew")
+        if not namespace.oldfile:
+            parser.error("Command requires --oldfile")
+    if namespace.cmd == COMMAND_FINDMOVES:
+        if not namespace.basenew:
+            parser.error("Command requires --basenew")
+        if not namespace.baseold:
+            parser.error("Command requires --baseold")
+
+    return namespace
+
+
+def main():
+
+    config = parse_arguments()
+
+    if  config.cmd == COMMAND_RENAME:
+        rename_dirs()
+        rename_files()
+
+    elif config.cmd == COMMAND_UNIQUE:
+        are_file_names_unique()
+
+    elif config.cmd == COMMAND_FINDMOVE:
+        matches = detect_move(basenew = sys.argv[2], oldfile = sys.argv[3])
+        pprint(matches)
+
+    elif config.cmd == COMMAND_FINDMOVES:
+        moves = detect_moves(basenew = sys.argv[2], baseold = sys.argv[3])
+        pprint(moves)
+
+
 if __name__ == '__main__':
-
-    if len(sys.argv) > 1:
-
-        if sys.argv[1] == "rename":
-            rename_dirs()
-            rename_files()
-    
-        if sys.argv[1] == "unique":
-            are_file_names_unique()
-
-        if sys.argv[1] == "detectmove":
-            matches = detect_move(basenew = sys.argv[2], oldfile = sys.argv[3])
-            pprint(matches)
-
-        if sys.argv[1] == "detectmoves":
-            moves = detect_moves(basenew = sys.argv[2], baseold = sys.argv[3])
-            pprint(moves)
-
+    main()
