@@ -218,6 +218,11 @@ def pick_likely_moves(movesfile, outfile = None):
 
         while True:
 
+            if not matches:
+                print ">>> No potential matches for: %s" % (filename,)
+                approved.append((filename, None,))
+                break
+
             match = matches[index]
             potential, ratio = match
 
