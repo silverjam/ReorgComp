@@ -10,9 +10,13 @@ from nose.tools import with_setup
 
 from utils import delete_later
 
+import reorgcomp.rename
+
 from reorgcomp.rename import save_output
 from reorgcomp.rename import read_input
 from reorgcomp.rename import detect_moves
+from reorgcomp.rename import rename_dirs
+from reorgcomp.rename import parse_arguments
 
 ####
 
@@ -40,10 +44,63 @@ def test_detectmoves():
 	actual = detect_moves("tests/data/B", "tests/data/A", test_detectmoves_file)
 	expected = [
 		('tests/data/A/foo/bar/baz/Greeting.txt',
-  			[('tests/data/B/baz/bar/foo/Greeting.txt', 1.0)])
+  			[('tests/data/B/baz/bar/foo/Greeting.txt', 1.0),
+  			 ('tests/data/B/baz/Greeting.txt', 0.36363636363636365)])
 		]
 
-	assert actual == expected
+	assert expected == actual, (expected, actual)
 
 	loaded = read_input(test_detectmoves_file)
-	assert loaded == expected
+	assert expected == loaded, (expected, loaded)
+
+
+def test_rename_dirs():
+
+	def _walk(d):
+		assert d == '.'
+		yield ("", ["bazfoo"], "foofoo")
+
+	def _rename(from_, to):
+		assert from_ == "bazfoo"
+		assert to == "bazbar"
+
+	parse_arguments(["--addrename", "foo", "bar"])
+	rename_dirs(os_walk=_walk, os_rename=_rename)
+	
+
+def test_rename_target():
+
+	rename_target = "rename_target"
+	parse_arguments(["--rename", rename_target])
+
+	def _walk(d):
+		assert d == rename_target
+		yield ("", ["bazfoo"], "foofoo")
+
+	def _rename(from_, to):
+		pass
+
+	rename_dirs(os_walk=_walk, os_rename=_rename)
+	
+
+def unpretend(val):
+	def func():
+		reorgcomp.rename.PRETEND_OPS = val
+
+
+@with_setup(teardown=unpretend(False))
+def test_pretend():
+
+	parse_arguments(["--pretend", "--rename", "bacon"])
+
+	def _walk(d):
+		yield ("", ["bazfoo"], "foofoo")
+
+	notcalled = [True]
+
+	def _rename(from_, to):
+		notcalled[0] = False
+
+	rename_dirs(_walk, _rename)
+
+	assert notcalled[0]

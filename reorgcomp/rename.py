@@ -16,19 +16,30 @@ import magic
 from unrepr import unrepr
 
 
+PRETEND_OPS = False
+
+_fixname_renames = []
+
 def fixname(s):
-    return s.replace("Chord", "Magnet").replace("chord", "magnet")
+    for (from_, to_) in _fixname_renames:
+        s = s.replace(from_, to_)
+    return s
 
 
 def longestpath(x, y):
     return -cmp(len(x[0]) + len(x[1]), len(y[0]) + len(y[1]))
 
-    
-def rename_dirs():
+
+_rename_target = "."
+
+def rename_dirs(
+    os_walk = os.walk,
+    os_rename = os.rename
+    ):
 
     paths = []
 
-    for (dirpath, dirnames, filenames,) in os.walk('.'):
+    for (dirpath, dirnames, filenames,) in os_walk(_rename_target):
         for dirname in dirnames:
             paths.append((dirpath, dirname))
 
@@ -42,7 +53,9 @@ def rename_dirs():
             oldname = os.path.join(dirpath, dirname)
             newname = os.path.join(dirpath, newname)
             print "Renaming '%s' -> '%s'" % (oldname, newname,)
-            os.rename(oldname, newname)
+
+            if not PRETEND_OPS:
+                os_rename(oldname, newname)
 
 
 def is_text_mimetype(filename):
@@ -53,7 +66,7 @@ def is_text_mimetype(filename):
 
 def rename_files():
 
-    for (dirpath, dirnames, filenames,) in os.walk('.'):
+    for (dirpath, dirnames, filenames,) in os.walk(_rename_target):
         for filename in filenames:
 
             oldname = os.path.join(dirpath, filename)
@@ -263,9 +276,15 @@ COMMANDS = [
 
 def parse_arguments(args=sys.argv[1:]):
 
+    global PRETEND_OPS
+    global _rename_target
+
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--pretend", action="store_true")
+
     parser.add_argument("--addrename", nargs=2, action="append")
+    parser.add_argument("--rename_target")
 
     parser.add_argument("--basenew")
     parser.add_argument("--oldfile")
@@ -291,7 +310,17 @@ def parse_arguments(args=sys.argv[1:]):
 
     elif namespace.cmd == COMMAND_PICK:
         if not namespace.infile:
-            parser.error("Command requires --infile=<PICKS>")
+            parser.error("Command requires --infile=<INFILE>")
+
+    if namespace.pretend:
+        PRETEND_OPS = True
+
+    if namespace.rename_target:
+        _rename_target = namespace.rename_target
+
+    if namespace.addrename:
+        for (from_, to_) in namespace.addrename:
+            _fixname_renames.append((from_, to_,))
 
     return namespace
 
@@ -300,7 +329,8 @@ def main():
 
     config = parse_arguments()
 
-    if  config.cmd == COMMAND_RENAME:
+    if config.cmd == COMMAND_RENAME:
+
         rename_dirs()
         rename_files()
 
