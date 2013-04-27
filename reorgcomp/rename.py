@@ -61,7 +61,7 @@ def rename_dirs(
 def is_text_mimetype(filename):
 
     mimetype = magic.from_file(filename, mime=True)
-    return ('text/' in mimetype) or ('xml' in mimetype)
+    return ('text/' in mimetype) or ('/xml' in mimetype)
 
 
 def rename_files():
