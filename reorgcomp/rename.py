@@ -3,14 +3,17 @@
 import os
 import sys
 import hashlib
-
+import subprocess
 import argparse
 
-from pprint import pprint
+from pprint import pprint, pformat
+
 from difflib import SequenceMatcher
 
 # https://pypi.python.org/pypi/python-magic/
 import magic
+
+from unrepr import unrepr
 
 
 def fixname(s):
@@ -162,10 +165,19 @@ def detect_move(basenew = None, oldfile = None):
             data = open(fullpath).read()
             ratio = get_ratio(dataold, data)
         matches.append( (fullpath, ratio) )
-    return matches
+    return sorted(matches, cmp=lambda x,y: -cmp(x[1], y[1]))
 
 
-def detect_moves(basenew = None, baseold = None):
+def save_output(outfile, output):
+    fp = open(outfile, 'w')
+    fp.write(pformat(output, 0, 80))
+
+
+def read_input(filename):
+    return unrepr(open(filename).read())
+
+
+def detect_moves(basenew = None, baseold = None, outfile = None):
     moves = []
     for (dirpath, dirnames, filenames,) in os.walk(baseold):
         if 'zmq' in dirpath:
@@ -174,19 +186,78 @@ def detect_moves(basenew = None, baseold = None):
         for filename in filenames:
             fp = os.path.join(dirpath, filename)
             moves.append( (fp, detect_move(basenew, fp)) )
+    if outfile != None:
+        save_output(outfile, moves)
     return moves
+
+
+def pick_likely_moves(movesfile, outfile = None):
+
+    approved = []
+    moves = read_input(movesfile)
+
+    for move in moves:
+
+        index = 0
+
+        filename, matches = move
+        print ">>> For file: %s" % (filename,)
+
+        while True:
+
+            match = matches[index]
+            potential, ratio = match
+
+            print ">>> Considering this location: %s (ratio = %.02f)" % (potential, ratio,)
+
+            print (">>> Select action " +
+                "(a = accept, r = reject, d = diff, n = next, p = previous):"),
+
+            try:
+                inp = raw_input()
+            except KeyboardInterrupt:
+                return
+
+            if   inp == 'a':
+                approved.append( (filename, potential,) )
+                break
+            elif inp == 'r':
+                matches.pop(index)
+                if len(matches) <= 0:
+                    print "!!! Warning: all files rejected"
+                    break
+                index = (index) % len(matches)
+            elif inp == 'd':
+                subprocess.call(["meld", filename, potential])
+                continue
+            elif inp == 'n':
+                index = (index + 1) % len(matches)
+            elif inp == 'p':
+                index = (index - 1)
+                if index < 0: index = len(matches) - 1
+            elif inp == '':
+                continue
+            else:
+                print ">>> Invalid selection!"
+
+    if outfile:
+        save_output(outfile, approved)
+
+    return approved
 
 
 COMMAND_RENAME = "rename"
 COMMAND_UNIQUE = "unique"
 COMMAND_FINDMOVE = "findmove"
 COMMAND_FINDMOVES = "findmoves"
+COMMAND_PICK = "pick"
 
 COMMANDS = [
     COMMAND_RENAME,
     COMMAND_UNIQUE,
     COMMAND_FINDMOVE,
     COMMAND_FINDMOVES,
+    COMMAND_PICK,
 ]
 
 
@@ -199,6 +270,8 @@ def parse_arguments(args=sys.argv[1:]):
     parser.add_argument("--basenew")
     parser.add_argument("--oldfile")
     parser.add_argument("--baseold")
+    parser.add_argument("--infile")
+    parser.add_argument("--outfile")
 
     parser.add_argument("--cmd", choices=COMMANDS)
 
@@ -209,11 +282,16 @@ def parse_arguments(args=sys.argv[1:]):
             parser.error("Command requires --basenew")
         if not namespace.oldfile:
             parser.error("Command requires --oldfile")
-    if namespace.cmd == COMMAND_FINDMOVES:
+
+    elif namespace.cmd == COMMAND_FINDMOVES:
         if not namespace.basenew:
             parser.error("Command requires --basenew")
         if not namespace.baseold:
             parser.error("Command requires --baseold")
+
+    elif namespace.cmd == COMMAND_PICK:
+        if not namespace.infile:
+            parser.error("Command requires --infile=<PICKS>")
 
     return namespace
 
@@ -230,12 +308,18 @@ def main():
         are_file_names_unique()
 
     elif config.cmd == COMMAND_FINDMOVE:
-        matches = detect_move(basenew = sys.argv[2], oldfile = sys.argv[3])
+        matches = detect_move(basenew = config.basenew, oldfile = config.oldfile)
         pprint(matches)
 
     elif config.cmd == COMMAND_FINDMOVES:
-        moves = detect_moves(basenew = sys.argv[2], baseold = sys.argv[3])
+        moves = detect_moves(basenew = config.basenew,
+                             baseold = config.baseold,
+                             outfile = config.outfile)
         pprint(moves)
+
+    elif config.cmd == COMMAND_PICK:
+        picks = pick_likely_moves(config.infile, outfile = config.outfile)
+        pprint(picks)
 
 
 if __name__ == '__main__':

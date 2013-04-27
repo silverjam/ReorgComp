@@ -3,13 +3,37 @@
 	[
 		{
 			"path": "/home/jam/Code/ReorgCompare",
-			"file_exclude_patterns": [".*"]
+			"file_exclude_patterns": [
+				".*",
+				".ropeproject/globalnames",
+				".ropeproject/history",
+				".ropeproject/objectdb"
+				]
 			//"folder_exclude_patterns": ["virtualenv"]
 		}
 	],
 
 	"settings" :
 	{
-		"rope_autoimport_modules" : [ "difflib.*", "argparse.*" ]
-	}
+		"rope_autoimport_modules" : [ 
+			"difflib.*",
+			"argparse.*",
+			"subprocess.*",
+			"os.*",
+			"sys.*",
+			"os.path.*"
+		]
+	},
+
+	"build_systems":
+    [
+        {
+            "name": "Run Tests",
+            "working_dir": "${project_path}",
+            "env": {"PYTHONPATH": "${project_path}/virtualenv/lib/python2.7/site-packages"},
+            "cmd": ["${project_path}/runtests.sh"],
+            "file_regex": "^[ ]*File \"(...*?)\", line ([0-9]*)",
+            "selector": "source.python"
+        }
+    ]
 }
