@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 
+import re
 import os
 import sys
+import difflib
 import hashlib
 import subprocess
 import argparse
+import textwrap
 
 from pprint import pprint, pformat
 
@@ -15,6 +18,9 @@ import magic
 
 from unrepr import unrepr
 
+
+GLOBAL_EXCLUDE = None
+GLOBAL_INCLUDE = None
 
 PRETEND_OPS = False
 
@@ -119,6 +125,9 @@ def get_ratio(data1, data2):
     return SequenceMatcher(str.isspace, data1, data2).ratio()
 
 
+def get_ratio_of_files(file1, file2):
+    return SequenceMatcher(str.isspace, open(file1).read(), open(file2).read()).ratio()
+
 def are_file_names_unique():
 
     names = get_uniqueness_of_files()
@@ -193,7 +202,7 @@ def read_input(filename):
 def detect_moves(basenew = None, baseold = None, outfile = None):
     moves = []
     for (dirpath, dirnames, filenames,) in os.walk(baseold):
-        if 'zmq' in dirpath:
+        if GLOBAL_EXCLUDE and GLOBAL_EXCLUDE.search(dirpath):
             continue
         print dirpath
         for filename in filenames:
@@ -202,6 +211,63 @@ def detect_moves(basenew = None, baseold = None, outfile = None):
     if outfile != None:
         save_output(outfile, moves)
     return moves
+
+
+def generate_ratios(infile, outfile = None):
+
+    ratios = []
+    moves = read_input(infile)
+
+    for (orig, dest) in moves:
+
+        print "%s -> %s" % (orig, dest)
+
+        if not dest:
+            continue
+
+        if not (is_text_mimetype(orig) and is_text_mimetype(dest)):
+            continue
+
+        ratio = get_ratio_of_files(orig, dest)
+
+        ratios.append((orig, dest, ratio))
+
+    if outfile:
+        save_output(outfile, ratios)
+
+    return ratios
+
+
+def find_duplicate_targets(infile, outfile = None):
+
+    moves = read_input(infile)
+    targets = {}
+
+    for move in moves:
+
+        orig = move[0]
+        dest = move[1]
+
+        ratio = None
+        if len(move) > 2:
+            ratio = move[2]
+
+        if ratio:
+            targets.setdefault(dest, []).append((orig, ratio))
+        else:
+            targets.setdefault(dest, []).append((orig,))
+
+
+    for key in targets.keys():
+        if not len(targets[key]) > 1:
+            del targets[key]
+
+    targets = targets.items()
+
+    if outfile != None:
+        save_output(outfile, targets)
+
+    return targets
 
 
 def pick_likely_moves(movesfile, outfile = None):
@@ -264,11 +330,155 @@ def pick_likely_moves(movesfile, outfile = None):
     return approved
 
 
+def filter_picks(infile, outfile = None):
+
+    filtered = []
+    moves = read_input(infile)
+
+    for move in moves:
+
+        orig = move[0]
+        dest = move[1]
+
+        ratio = None
+
+        if len(move) > 2:
+            ratio = move[2]
+
+        include = None
+
+        if GLOBAL_INCLUDE:
+
+            include = False 
+
+            if GLOBAL_INCLUDE.search(orig):
+                include = True
+            if dest and GLOBAL_INCLUDE.search(dest):
+                include = True
+            #if ratio and GLOBAL_INCLUDE.search(ratio):
+            #    include = True
+
+        if GLOBAL_EXCLUDE:
+
+            include = True
+            
+            if GLOBAL_EXCLUDE.search(orig):
+                include = False
+            if dest and GLOBAL_EXCLUDE.search(dest):
+                include = False
+            #if ratio and GLOBAL_EXCLUDE.search(ratio):
+            #    include = False
+
+        item = (orig, dest)
+        if ratio:
+            item = (orig, dest, ratio)
+
+        if include:
+            filtered.append(item)
+
+        print "%s -> %s" % (orig, dest)
+
+    if outfile:
+        save_output(outfile, filtered)
+
+    return filtered
+
+
+def average_ratios(infile):
+
+    moves = read_input(infile)
+    ratio_sum = 0
+    count = 0
+    for (_, _, ratio) in moves:
+        ratio_sum += ratio
+        count += 1
+    return ratio_sum / count
+
+
+def pick_top_of_dupes(infile, outfile = None):
+
+    dupes = read_input(infile)
+    picks = []
+
+    for (dest, origs) in dupes:
+
+        origs.sort(cmp = lambda x,y: -cmp(x[1], y[1]))
+        picks.append((origs[0][0], dest, origs[0][1],))
+
+    if outfile:
+        save_output(outfile, picks) 
+
+    return picks
+
+
+def remove_unresolved_pick(infile, additional, outfile = None):
+
+    filtered = []
+    moves = read_input(infile)
+    resolved = read_input(additional)
+
+    resolved_dict = {}
+    for resolve in resolved:
+        resolved_dict[resolve[1]] = resolve[0]
+
+    for move in moves:
+
+        orig = move[0]
+        dest = move[1]
+
+        #print orig, dest
+
+        ratio = None
+
+        if len(move) > 2:
+            ratio = move[2]
+
+        if dest in resolved_dict:
+            source = resolved_dict[dest]
+            if orig != source:
+                print 'REMOVED: ', dest
+                continue
+
+        item = (orig, dest)
+        if ratio:
+            item = (orig, dest, ratio)
+
+        filtered.append(item)
+
+    if outfile:
+        save_output(outfile, filtered)
+
+    return filtered
+
+
+def generate_diffs(infile):
+
+    moves = read_input(infile)
+
+    for move in moves:
+
+        orig = move[0]
+        dest = move[1]
+
+        orig_data = open(orig).read().splitlines()
+        dest_data = open(dest).read().splitlines()
+
+        diff = difflib.unified_diff([S + '\n' for S in orig_data], [S + '\n' for S in dest_data], orig, dest) 
+        print ''.join(diff)
+
+
 COMMAND_RENAME = "rename"
 COMMAND_UNIQUE = "unique"
 COMMAND_FINDMOVE = "findmove"
 COMMAND_FINDMOVES = "findmoves"
 COMMAND_PICK = "pick"
+COMMAND_RATIO = "ratio"
+COMMAND_FILTER_PICKS = "filter"
+COMMAND_AVERAGE = "average"
+COMMAND_DUPLICATES = "duplicates"
+COMMAND_UNDUPE = "undupe"
+COMMAND_UNRESOLVE = "unresolve"
+COMMAND_DIFF = "diff"
 
 COMMANDS = [
     COMMAND_RENAME,
@@ -276,30 +486,94 @@ COMMANDS = [
     COMMAND_FINDMOVE,
     COMMAND_FINDMOVES,
     COMMAND_PICK,
+    COMMAND_RATIO,
+    COMMAND_FILTER_PICKS,
+    COMMAND_AVERAGE,
+    COMMAND_DUPLICATES,
+    COMMAND_UNDUPE,
+    COMMAND_UNRESOLVE,
+    COMMAND_DIFF,
 ]
 
 
 def parse_arguments(args=sys.argv[1:]):
 
-    global PRETEND_OPS
-    global _rename_target
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=textwrap.dedent("""
+            Commands available (--cmd):
 
-    parser = argparse.ArgumentParser()
+            - 'rename'    : rename all the directories, files, and then contents according
+                            to the specified renames (added with --addrename)
+
+            - 'unique'    : attempt to determine how unique the file names are in the 
+                            current directory
+
+            - 'findmove'  : for a particular file (--oldfile) determine if that file has
+                            been moved within a new directory (--basenew), also returns 
+                            the edit ratio similarity of those files
+
+            - 'findmoves' : for a given old directory (--baseold) determine where files
+                            have moved according to their name and edit similarity to 
+                            files with the same name in the new directory (--basenew),
+                            moves generated should be saved with --outfile
+
+            - 'pick'      : for a given set of moves (--inflie), display a UI to allow
+                            the user to pick a move that most closely matches, during which
+                            the use is allowed to diff the files and view the match ratio
+
+            - 'ratio'     : for a given set of picks (--inflie), generate the similarity
+                            ratio between it and the picked destination
+
+            - 'filter'    : for a given set of picks (--inflie), filter the picks based on
+                            the given criteria
+
+            - 'average'   : for a given set of picks (--inflie), give the average ratio 
+                            of those picks
+
+            - 'duplicates': for a given set of picks (--inflie), find files that have
+                            duplicate targets
+
+            - 'undupe'    : for a given set of duplicates (--inflie), pick the dest file
+                            that most closely matches
+
+            - 'unresolve' : for a given set of picks (--infile), remove the picks that where
+                            not selected as 'correct' during a 'duplicates' + 'undupe' pass
+
+            - 'diff'      : generate diffs for a given set of moves (--infile)
+                           
+        """)
+    )
 
     parser.add_argument("--pretend", action="store_true")
 
     parser.add_argument("--addrename", nargs=2, action="append")
     parser.add_argument("--rename_target")
 
-    parser.add_argument("--basenew")
-    parser.add_argument("--oldfile")
-    parser.add_argument("--baseold")
-    parser.add_argument("--infile")
-    parser.add_argument("--outfile")
+    parser.add_argument("--exclude")
+    parser.add_argument("--include")
 
-    parser.add_argument("--cmd", choices=COMMANDS)
+    parser.add_argument("--basenew", help="base of the new collection of files")
+    parser.add_argument("--oldfile", help="the path to the old file within the old base")
+    parser.add_argument("--baseold", help="base of the old collection of files")
+    parser.add_argument("--infile", help="input file for certain commands (pick, filter, ratio, average, duplicates, undupe, unresolve)")
+    parser.add_argument("--infile2", help="additional input file for certain commands (unresolve)")
+    parser.add_argument("--outfile", help="output file to save the results of certain commands (findmoves, pick, filter, ratio, filter, duplicates, undupe, unresolve)")
+
+    parser.add_argument("--cmd", choices=COMMANDS, help="perform a command, see above for descriptions")
 
     namespace = parser.parse_args(args)
+
+    requires_infile = set([
+        COMMAND_PICK,
+        COMMAND_FILTER_PICKS,
+        COMMAND_RATIO,
+        COMMAND_AVERAGE,
+        COMMAND_DUPLICATES,
+        COMMAND_UNDUPE,
+        COMMAND_UNRESOLVE,
+        COMMAND_DIFF,
+        ])
 
     if namespace.cmd == COMMAND_FINDMOVE:
         if not namespace.basenew:
@@ -307,18 +581,26 @@ def parse_arguments(args=sys.argv[1:]):
         if not namespace.oldfile:
             parser.error("Command requires --oldfile")
 
-    elif namespace.cmd == COMMAND_FINDMOVES:
+    if namespace.cmd == COMMAND_FINDMOVES:
         if not namespace.basenew:
             parser.error("Command requires --basenew")
         if not namespace.baseold:
             parser.error("Command requires --baseold")
 
-    elif namespace.cmd == COMMAND_PICK:
+    if namespace.cmd in requires_infile:
         if not namespace.infile:
             parser.error("Command requires --infile=<INFILE>")
 
+    if namespace.cmd == COMMAND_UNRESOLVE:
+        if not namespace.infile2:
+            parser.error("Command requires --infile2=<INFILE2>")
+
+    global PRETEND_OPS
+
     if namespace.pretend:
         PRETEND_OPS = True
+
+    global _rename_target
 
     if namespace.rename_target:
         _rename_target = namespace.rename_target
@@ -326,6 +608,14 @@ def parse_arguments(args=sys.argv[1:]):
     if namespace.addrename:
         for (from_, to_) in namespace.addrename:
             _fixname_renames.append((from_, to_,))
+
+    global GLOBAL_EXCLUDE, GLOBAL_INCLUDE
+
+    if namespace.exclude:
+        GLOBAL_EXCLUDE = re.compile(namespace.exclude)
+
+    if namespace.include:
+        GLOBAL_INCLUDE = re.compile(namespace.include)
 
     return namespace
 
@@ -355,6 +645,33 @@ def main():
     elif config.cmd == COMMAND_PICK:
         picks = pick_likely_moves(config.infile, outfile = config.outfile)
         pprint(picks)
+
+    elif config.cmd == COMMAND_RATIO:
+        ratios = generate_ratios(config.infile, outfile = config.outfile)
+        pprint(ratios)
+
+    elif config.cmd == COMMAND_FILTER_PICKS:
+        filtered = filter_picks(config.infile, outfile = config.outfile)
+        pprint(filtered)
+
+    elif config.cmd == COMMAND_AVERAGE:
+        average = average_ratios(config.infile)
+        pprint(average)
+
+    elif config.cmd == COMMAND_DUPLICATES:
+        dupes = find_duplicate_targets(config.infile, outfile= config.outfile)
+        pprint(dupes)
+
+    elif config.cmd == COMMAND_UNDUPE:
+        undupe = pick_top_of_dupes(config.infile, outfile=config.outfile)
+        pprint(undupe)
+
+    elif config.cmd == COMMAND_UNRESOLVE:
+        filtered = remove_unresolved_pick(config.infile, config.infile2, outfile=config.outfile)
+        pprint(filtered)
+
+    elif config.cmd == COMMAND_DIFF:
+        generate_diffs(config.infile)
 
 
 if __name__ == '__main__':
