@@ -451,6 +451,63 @@ def remove_unresolved_pick(infile, additional, outfile = None):
     return filtered
 
 
+def merge_adds_and_deletes(infile, baseold, basenew, outfile = None):
+
+    withaddsdels = []
+    moves = read_input(infile)
+
+    orig_set = set() 
+    dest_set = set() 
+
+    for move in moves:
+        orig = move[0]
+        orig_set.add(orig)
+        dest = move[1]
+        dest_set.add(dest)
+
+    for (dirpath, dirnames, filenames,) in os.walk(baseold):
+        for filename in filenames:
+            fp = os.path.join(dirpath, filename)
+            if GLOBAL_EXCLUDE and GLOBAL_EXCLUDE.search(fp):
+                continue
+            if fp not in orig_set:
+                withaddsdels.append((fp, None, -1))
+
+    withaddsdels = []
+
+    for (dirpath, dirnames, filenames,) in os.walk(basenew):
+        for filename in filenames:
+            fp = os.path.join(dirpath, filename)
+            if GLOBAL_EXCLUDE and GLOBAL_EXCLUDE.search(fp):
+                continue
+            if fp not in dest_set:
+                withaddsdels.append((None, fp, -1))
+
+
+    moves.extend(withaddsdels)
+
+    def insort(idx):
+        def func(x, y):
+            if x[idx] == None or y[idx] == None:
+                return 0
+            return cmp(x[idx], y[idx])
+        return func
+
+    def insortadds():
+        return insort(0)
+
+    def insortdels():
+        return insort(1)
+
+    moves.sort(cmp=insortadds())
+    moves.sort(cmp=insortdels())
+
+    if outfile:
+        save_output(outfile, moves)
+
+    return moves
+
+
 def generate_diffs(infile):
 
     moves = read_input(infile)
@@ -460,10 +517,23 @@ def generate_diffs(infile):
         orig = move[0]
         dest = move[1]
 
-        orig_data = open(orig).read().splitlines()
-        dest_data = open(dest).read().splitlines()
+        regex = re.compile('\r\n|\n|\r')
 
-        diff = difflib.unified_diff([S + '\n' for S in orig_data], [S + '\n' for S in dest_data], orig, dest) 
+        if orig != None and not is_text_mimetype(orig):
+            continue
+
+        if dest != None and not is_text_mimetype(dest):
+            continue
+
+        orig_data = []
+        if orig != None:
+            orig_data = regex.split(open(orig).read())
+
+        dest_data = []
+        if dest != None:
+            dest_data = regex.split(open(dest).read())
+
+        diff = difflib.unified_diff([S.rstrip() + '\n' for S in orig_data], [S.rstrip() + '\n' for S in dest_data], orig, dest) 
         print ''.join(diff)
 
 
@@ -479,6 +549,7 @@ COMMAND_DUPLICATES = "duplicates"
 COMMAND_UNDUPE = "undupe"
 COMMAND_UNRESOLVE = "unresolve"
 COMMAND_DIFF = "diff"
+COMMAND_WITHADDSDELS = "w_addsdels"
 
 COMMANDS = [
     COMMAND_RENAME,
@@ -493,6 +564,7 @@ COMMANDS = [
     COMMAND_UNDUPE,
     COMMAND_UNRESOLVE,
     COMMAND_DIFF,
+    COMMAND_WITHADDSDELS,
 ]
 
 
@@ -541,6 +613,9 @@ def parse_arguments(args=sys.argv[1:]):
                             not selected as 'correct' during a 'duplicates' + 'undupe' pass
 
             - 'diff'      : generate diffs for a given set of moves (--infile)
+
+            - 'w_addsdels': put adds and deletes back in to the list of files so that a
+                            'diff' command will display them
                            
         """)
     )
@@ -573,17 +648,30 @@ def parse_arguments(args=sys.argv[1:]):
         COMMAND_UNDUPE,
         COMMAND_UNRESOLVE,
         COMMAND_DIFF,
+        COMMAND_WITHADDSDELS,
+        ])
+
+    requires_baseold = set([
+        COMMAND_FINDMOVE,
+        COMMAND_FINDMOVES,
+        COMMAND_WITHADDSDELS,
+        ])
+
+    requires_basenew = set([
+        COMMAND_FINDMOVE,
+        COMMAND_FINDMOVES,
+        COMMAND_WITHADDSDELS,
         ])
 
     if namespace.cmd == COMMAND_FINDMOVE:
-        if not namespace.basenew:
-            parser.error("Command requires --basenew")
         if not namespace.oldfile:
             parser.error("Command requires --oldfile")
 
-    if namespace.cmd == COMMAND_FINDMOVES:
+    if namespace.cmd in requires_basenew:
         if not namespace.basenew:
             parser.error("Command requires --basenew")
+
+    if namespace.cmd in requires_baseold:
         if not namespace.baseold:
             parser.error("Command requires --baseold")
 
@@ -672,6 +760,10 @@ def main():
 
     elif config.cmd == COMMAND_DIFF:
         generate_diffs(config.infile)
+
+    elif config.cmd == COMMAND_WITHADDSDELS:
+        moves = merge_adds_and_deletes(config.infile, config.baseold, config.basenew, outfile=config.outfile)
+        pprint(moves)
 
 
 if __name__ == '__main__':
